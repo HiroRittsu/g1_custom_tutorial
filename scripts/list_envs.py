@@ -4,13 +4,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Script to print all the available environments in Isaac Lab.
+Script to print available environments in this extension.
 
-The script iterates over all registered environments and stores the details in a table.
-It prints the name of the environment, the entry point and the config file.
-
-All the environments are registered in the `g1_custom_tutorial` extension. They start
-with `Isaac` in their name.
+Tip: pass --search to filter by ID substring (e.g., "Custom-", "Template-", "Isaac-").
+By default it searches for "Custom-" since this repo registers Custom-* IDs.
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -24,6 +21,7 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
+import argparse
 import gymnasium as gym
 from prettytable import PrettyTable
 
@@ -32,6 +30,9 @@ import g1_custom_tutorial.tasks  # noqa: F401
 
 def main():
     """Print all environments registered in `g1_custom_tutorial` extension."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--search", type=str, default="Custom-", help="Substring to match in Gym IDs")
+    args = parser.parse_args()
     # print all the available environments
     table = PrettyTable(["S. No.", "Task Name", "Entry Point", "Config"])
     table.title = "Available Environments in Isaac Lab"
@@ -43,10 +44,12 @@ def main():
     # count of environments
     index = 0
     # acquire all Isaac environments names
-    for task_spec in gym.registry.values():
-        if "Template-" in task_spec.id:
+    registry = getattr(gym, "registry", gym.envs.registry)
+    for task_spec in registry.values():
+        if args.search in task_spec.id:
             # add details to table
-            table.add_row([index + 1, task_spec.id, task_spec.entry_point, task_spec.kwargs["env_cfg_entry_point"]])
+            cfg_key = "env_cfg_entry_point" if "env_cfg_entry_point" in task_spec.kwargs else task_spec.kwargs.get("env_cfg_entry_point", "-")
+            table.add_row([index + 1, task_spec.id, task_spec.entry_point, cfg_key])
             # increment count
             index += 1
 
