@@ -3,10 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Common functions that can be used to create curriculum for the learning environment.
+"""学習環境のカリキュラムを構成するための共通関数。
 
-The functions can be passed to the :class:`isaaclab.managers.CurriculumTermCfg` object to enable
-the curriculum introduced by the function.
+これらの関数は :class:`isaaclab.managers.CurriculumTermCfg` に渡すことで、
+対応するカリキュラム制御を有効にできます。
 """
 
 from __future__ import annotations
@@ -26,30 +26,31 @@ if TYPE_CHECKING:
 def terrain_levels_vel(
     env: ManagerBasedRLEnv, env_ids: Sequence[int], asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Curriculum based on the distance the robot walked when commanded to move at a desired velocity.
+    """
+    所望速度コマンド下での移動距離に基づくカリキュラム制御。
 
-    This term is used to increase the difficulty of the terrain when the robot walks far enough and decrease the
-    difficulty when the robot walks less than half of the distance required by the commanded velocity.
+    十分に歩けた環境は難易度（地形レベル）を上げ、必要距離の半分未満しか歩けない環境は
+    難易度を下げます。
 
     .. note::
-        It is only possible to use this term with the terrain type ``generator``. For further information
-        on different terrain types, check the :class:`isaaclab.terrains.TerrainImporter` class.
+        本項目は地形タイプが ``generator`` の場合のみ使用できます。
+        地形タイプの詳細は :class:`isaaclab.terrains.TerrainImporter` を参照してください。
 
-    Returns:
-        The mean terrain level for the given environment ids.
+    戻り値:
+        与えられた環境IDに対する平均地形レベル。
     """
-    # extract the used quantities (to enable type-hinting)
+    # 型ヒントのために使用するデータを取り出す
     asset: Articulation = env.scene[asset_cfg.name]
     terrain: TerrainImporter = env.scene.terrain
     command = env.command_manager.get_command("base_velocity")
-    # compute the distance the robot walked
+    # 走破距離を計算
     distance = torch.norm(asset.data.root_pos_w[env_ids, :2] - env.scene.env_origins[env_ids, :2], dim=1)
-    # robots that walked far enough progress to harder terrains
+    # 十分に歩けたロボットは難しい地形へ
     move_up = distance > terrain.cfg.terrain_generator.size[0] / 2
-    # robots that walked less than half of their required distance go to simpler terrains
+    # 必要距離の半分未満は簡単な地形へ
     move_down = distance < torch.norm(command[env_ids, :2], dim=1) * env.max_episode_length_s * 0.5
     move_down *= ~move_up
-    # update terrain levels
+    # 地形レベルを更新
     terrain.update_env_origins(env_ids, move_up, move_down)
-    # return the mean terrain level
+    # 平均地形レベルを返す
     return torch.mean(terrain.terrain_levels.float())

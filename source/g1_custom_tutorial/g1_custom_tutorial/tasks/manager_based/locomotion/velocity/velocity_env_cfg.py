@@ -26,21 +26,21 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
 ##
-# Pre-defined configs
+# 事前定義済みの設定
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
 
 ##
-# Scene definition
+# シーン定義
 ##
 
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
-    """Configuration for the terrain scene with a legged robot."""
+    """脚式ロボットと地形を含むシーンの設定。"""
 
-    # ground terrain
+    # 地形（地面）
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
@@ -60,9 +60,9 @@ class MySceneCfg(InteractiveSceneCfg):
         ),
         debug_vis=False,
     )
-    # robots
+    # ロボット
     robot: ArticulationCfg = MISSING
-    # sensors
+    # センサ
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
@@ -72,7 +72,7 @@ class MySceneCfg(InteractiveSceneCfg):
         mesh_prim_paths=["/World/ground"],
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
-    # lights
+    # 照明
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
         spawn=sim_utils.DomeLightCfg(
@@ -83,13 +83,13 @@ class MySceneCfg(InteractiveSceneCfg):
 
 
 ##
-# MDP settings
+# MDP 設定
 ##
 
 
 @configclass
 class CommandsCfg:
-    """Command specifications for the MDP."""
+    """MDP におけるコマンドの仕様。"""
 
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
@@ -107,20 +107,20 @@ class CommandsCfg:
 
 @configclass
 class ActionsCfg:
-    """Action specifications for the MDP."""
+    """MDP におけるアクションの仕様。"""
 
     joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
 
 
 @configclass
 class ObservationsCfg:
-    """Observation specifications for the MDP."""
+    """MDP における観測の仕様。"""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+        """ポリシー用観測グループ。"""
 
-        # observation terms (order preserved)
+        # 観測項目（順序維持）
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(
@@ -148,9 +148,9 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Configuration for events."""
+    """イベント設定。"""
 
-    # startup
+    # 起動時
     physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -182,7 +182,7 @@ class EventCfg:
         },
     )
 
-    # reset
+    # リセット時
     base_external_force_torque = EventTerm(
         func=mdp.apply_external_force_torque,
         mode="reset",
@@ -218,7 +218,7 @@ class EventCfg:
         },
     )
 
-    # interval
+    # 一定間隔
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
@@ -229,16 +229,16 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP."""
+    """MDP の報酬項目。"""
 
-    # -- task
+    # -- タスク本体
     track_lin_vel_xy_exp = RewTerm(
         func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    # -- penalties
+    # -- ペナルティ
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
@@ -258,14 +258,14 @@ class RewardsCfg:
         weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH"), "threshold": 1.0},
     )
-    # -- optional penalties
+    # -- オプションのペナルティ
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
 
 @configclass
 class TerminationsCfg:
-    """Termination terms for the MDP."""
+    """MDP の終了条件。"""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
@@ -276,51 +276,51 @@ class TerminationsCfg:
 
 @configclass
 class CurriculumCfg:
-    """Curriculum terms for the MDP."""
+    """MDP のカリキュラム項目。"""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
 
 
 ##
-# Environment configuration
+# 環境設定
 ##
 
 
 @configclass
 class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
+    """ロコモーションの速度追従タスク用環境設定。"""
 
-    # Scene settings
+    # シーン設定
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
-    # Basic settings
+    # 基本設定
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    # MDP settings
+    # MDP 設定
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
+        """後処理の初期化。"""
+        # 一般設定
         self.decimation = 4
         self.episode_length_s = 20.0
-        # simulation settings
+        # 物理シミュレーション設定
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-        # update sensor update periods
-        # we tick all the sensors based on the smallest update period (physics update period)
+        # センサの更新周期を調整
+        # 物理ステップ（最短周期）に合わせて更新する
         if self.scene.height_scanner is not None:
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt
         if self.scene.contact_forces is not None:
             self.scene.contact_forces.update_period = self.sim.dt
 
-        # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
-        # this generates terrains with increasing difficulty and is useful for training
+        # 地形レベルのカリキュラム設定
+        # 有効な場合は地形ジェネレータ側のカリキュラムも有効化（段階的に難易度を上げる）
         if getattr(self.curriculum, "terrain_levels", None) is not None:
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = True

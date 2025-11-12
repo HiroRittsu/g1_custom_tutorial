@@ -3,10 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Common functions that can be used to define rewards for the learning environment.
+"""
+学習環境の報酬を定義するための共通関数。
 
-The functions can be passed to the :class:`isaaclab.managers.RewardTermCfg` object to
-specify the reward function and its parameters.
+これらの関数は :class:`isaaclab.managers.RewardTermCfg` に渡して、
+報酬関数およびそのパラメータを指定できます。
 """
 
 from __future__ import annotations
@@ -26,13 +27,13 @@ if TYPE_CHECKING:
 def feet_air_time(
     env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, threshold: float
 ) -> torch.Tensor:
-    """Reward long steps taken by the feet using L2-kernel.
+    """
+    足の空中時間を報いる（L2カーネル）。
 
-    This function rewards the agent for taking steps that are longer than a threshold. This helps ensure
-    that the robot lifts its feet off the ground and takes steps. The reward is computed as the sum of
-    the time for which the feet are in the air.
+    足が一定しきい値より長く空中にあるステップを奨励します。これにより足上げ歩行を促進します。
+    報酬は各足の空中時間の総和として計算されます。
 
-    If the commands are small (i.e. the agent is not supposed to take a step), then the reward is zero.
+    コマンドが小さい（歩行を求められていない）場合は報酬は0になります。
     """
     # extract the used quantities (to enable type-hinting)
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -46,12 +47,11 @@ def feet_air_time(
 
 
 def feet_air_time_positive_biped(env, command_name: str, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Reward long steps taken by the feet for bipeds.
+    """
+    二足歩行向けの空中時間報酬。
 
-    This function rewards the agent for taking steps up to a specified threshold and also keep one foot at
-    a time in the air.
-
-    If the commands are small (i.e. the agent is not supposed to take a step), then the reward is zero.
+    指定しきい値までの空中時間を報酬とし、さらに片脚支持（片方だけ接地）を維持することを奨励します。
+    コマンドが小さい場合は報酬は0になります。
     """
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     # compute the reward
@@ -68,11 +68,10 @@ def feet_air_time_positive_biped(env, command_name: str, threshold: float, senso
 
 
 def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
-    """Penalize feet sliding.
+    """
+    足のスリップをペナルティ。
 
-    This function penalizes the agent for sliding its feet on the ground. The reward is computed as the
-    norm of the linear velocity of the feet multiplied by a binary contact sensor. This ensures that the
-    agent is penalized only when the feet are in contact with the ground.
+    接地中の足の水平速度ノルムに基づいてペナルティを与えます（接触時のみ適用）。
     """
     # Penalize feet sliding
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -87,7 +86,9 @@ def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = Scen
 def track_lin_vel_xy_yaw_frame_exp(
     env, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Reward tracking of linear velocity commands (xy axes) in the gravity aligned robot frame using exponential kernel."""
+    """
+    重力整列フレーム（Yawのみ）での並進速度（xy）指令の追従度を指数カーネルで評価。
+    """
     # extract the used quantities (to enable type-hinting)
     asset = env.scene[asset_cfg.name]
     vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
@@ -100,7 +101,9 @@ def track_lin_vel_xy_yaw_frame_exp(
 def track_ang_vel_z_world_exp(
     env, command_name: str, std: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Reward tracking of angular velocity commands (yaw) in world frame using exponential kernel."""
+    """
+    ワールド座標系におけるヨー角速度指令の追従度を指数カーネルで評価。
+    """
     # extract the used quantities (to enable type-hinting)
     asset = env.scene[asset_cfg.name]
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_w[:, 2])
@@ -110,7 +113,9 @@ def track_ang_vel_z_world_exp(
 def stand_still_joint_deviation_l1(
     env, command_name: str, command_threshold: float = 0.06, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Penalize offsets from the default joint positions when the command is very small."""
+    """
+    コマンドがほぼゼロのとき、デフォルト関節位置からのずれをペナルティ。
+    """
     command = env.command_manager.get_command(command_name)
     # Penalize motion when command is nearly zero.
     return mdp.joint_deviation_l1(env, asset_cfg) * (torch.norm(command[:, :2], dim=1) < command_threshold)

@@ -11,14 +11,14 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
 
 ##
-# Pre-defined configs
+# 事前定義済みの設定
 ##
 from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 
 
 @configclass
 class G1Rewards(RewardsCfg):
-    """Reward terms for the MDP."""
+    """MDP の報酬項目。"""
 
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
     track_lin_vel_xy_exp = RewTerm(
@@ -47,13 +47,13 @@ class G1Rewards(RewardsCfg):
         },
     )
 
-    # Penalize ankle joint limits
+    # 足首の関節可動域超過をペナルティ
     dof_pos_limits = RewTerm(
         func=mdp.joint_pos_limits,
         weight=-1.0,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"])},
     )
-    # Penalize deviation from default of the joints that are not essential for locomotion
+    # 歩行に必須でない関節のデフォルト姿勢からの逸脱を抑制
     joint_deviation_hip = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.1,
@@ -105,13 +105,13 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     rewards: G1Rewards = G1Rewards()
 
     def __post_init__(self):
-        # post init of parent
+        # 親クラスの後処理初期化
         super().__post_init__()
-        # Scene
+        # シーン
         self.scene.robot = G1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
 
-        # Randomization
+        # ランダム化
         self.events.push_robot = None
         self.events.add_base_mass = None
         self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
@@ -129,7 +129,7 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         }
         self.events.base_com = None
 
-        # Rewards
+        # 報酬調整
         self.rewards.lin_vel_z_l2.weight = 0.0
         self.rewards.undesired_contacts = None
         self.rewards.flat_orientation_l2.weight = -1.0
@@ -143,28 +143,28 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
             "robot", joint_names=[".*_hip_.*", ".*_knee_joint", ".*_ankle_.*"]
         )
 
-        # Commands
+        # コマンド範囲
         self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
 
-        # terminations
+        # 終了条件
         self.terminations.base_contact.params["sensor_cfg"].body_names = "torso_link"
 
 
 @configclass
 class G1RoughEnvCfg_PLAY(G1RoughEnvCfg):
     def __post_init__(self):
-        # post init of parent
+        # 親クラスの後処理初期化
         super().__post_init__()
 
-        # make a smaller scene for play
+        # 再生（デモ）用に小規模シーンに調整
         self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
         self.episode_length_s = 40.0
-        # spawn the robot randomly in the grid (instead of their terrain levels)
+        # 地形レベルではなくグリッド上にランダム配置
         self.scene.terrain.max_init_terrain_level = None
-        # reduce the number of terrains to save memory
+        # メモリ節約のため地形数を削減
         if self.scene.terrain.terrain_generator is not None:
             self.scene.terrain.terrain_generator.num_rows = 5
             self.scene.terrain.terrain_generator.num_cols = 5
@@ -174,8 +174,8 @@ class G1RoughEnvCfg_PLAY(G1RoughEnvCfg):
         self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         self.commands.base_velocity.ranges.heading = (0.0, 0.0)
-        # disable randomization for play
+        # デモではランダム化を無効化
         self.observations.policy.enable_corruption = False
-        # remove random pushing
+        # ランダム外乱（プッシュ）を無効化
         self.events.base_external_force_torque = None
         self.events.push_robot = None

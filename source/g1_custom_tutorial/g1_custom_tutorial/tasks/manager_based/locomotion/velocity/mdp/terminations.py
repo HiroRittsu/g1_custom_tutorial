@@ -3,10 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Common functions that can be used to activate certain terminations.
+"""
+特定の終了条件（Done）を有効化するための共通関数。
 
-The functions can be passed to the :class:`isaaclab.managers.TerminationTermCfg` object to enable
-the termination introduced by the function.
+これらの関数は :class:`isaaclab.managers.TerminationTermCfg` に渡すことで、
+該当する終了条件を有効にできます。
 """
 
 from __future__ import annotations
@@ -24,27 +25,28 @@ if TYPE_CHECKING:
 def terrain_out_of_bounds(
     env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), distance_buffer: float = 3.0
 ) -> torch.Tensor:
-    """Terminate when the actor move too close to the edge of the terrain.
+    """
+    エージェントが地形の端に近づきすぎたときにエピソードを終了します。
 
-    If the actor moves too close to the edge of the terrain, the termination is activated. The distance
-    to the edge of the terrain is calculated based on the size of the terrain and the distance buffer.
+    地形の端からの距離がしきい値（バッファ）より小さい場合に終了条件を発火します。
+    距離は地形サイズとバッファから算出されます。
     """
     if env.scene.cfg.terrain.terrain_type == "plane":
-        return False  # we have infinite terrain because it is a plane
+        return False  # 平面地形は無限に広いとみなすため終了しない
     elif env.scene.cfg.terrain.terrain_type == "generator":
-        # obtain the size of the sub-terrains
+        # サブ地形のサイズを取得
         terrain_gen_cfg = env.scene.terrain.cfg.terrain_generator
         grid_width, grid_length = terrain_gen_cfg.size
         n_rows, n_cols = terrain_gen_cfg.num_rows, terrain_gen_cfg.num_cols
         border_width = terrain_gen_cfg.border_width
-        # compute the size of the map
+        # マップ全体のサイズを計算
         map_width = n_rows * grid_width + 2 * border_width
         map_height = n_cols * grid_length + 2 * border_width
 
-        # extract the used quantities (to enable type-hinting)
+        # 型ヒントのために使用するデータを取り出す
         asset: RigidObject = env.scene[asset_cfg.name]
 
-        # check if the agent is out of bounds
+        # 境界外かどうかを判定
         x_out_of_bounds = torch.abs(asset.data.root_pos_w[:, 0]) > 0.5 * map_width - distance_buffer
         y_out_of_bounds = torch.abs(asset.data.root_pos_w[:, 1]) > 0.5 * map_height - distance_buffer
         return torch.logical_or(x_out_of_bounds, y_out_of_bounds)

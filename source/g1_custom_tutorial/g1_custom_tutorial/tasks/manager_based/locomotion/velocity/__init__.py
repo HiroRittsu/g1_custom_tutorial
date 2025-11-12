@@ -3,10 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Locomotion environments with velocity-tracking commands.
+"""速度指令の追従を目的としたロコモーション環境。
 
-These environments are based on the `legged_gym` environments provided by Rudin et al.
+これらの環境は Rudin らによる `legged_gym` 環境に着想を得ています。
 
-Reference:
+参考:
     https://github.com/leggedrobotics/legged_gym
 """

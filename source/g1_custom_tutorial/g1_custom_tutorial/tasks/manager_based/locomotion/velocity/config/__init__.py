@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configurations for velocity-based locomotion environments."""
+"""速度追従型ロコモーション環境の各種設定。"""
 
-# We leave this file empty since we don't want to expose any configs in this package directly.
-# We still need this file to import the "config" module in the parent package.
+# このパッケージ直下で設定を公開しないため、中身は空とします。
+# 親パッケージから "config" モジュールをインポートできるように、このファイルは必要です。
