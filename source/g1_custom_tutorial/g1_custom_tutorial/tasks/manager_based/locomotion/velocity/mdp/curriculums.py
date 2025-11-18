@@ -54,3 +54,47 @@ def terrain_levels_vel(
     terrain.update_env_origins(env_ids, move_up, move_down)
     # 平均地形レベルを返す
     return torch.mean(terrain.terrain_levels.float())
+
+
+def expand_height_sampling(
+    env: "ManagerBasedRLEnv",
+    env_ids: Sequence[int],
+    command_name: str = "base_velocity",
+    center: float = 0.74,
+    width_min: float = 0.0,
+    width_max: float = 0.08,
+    widen_step: float = 0.01,
+    success_scale: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Curriculum: widen height sampling width for successful envs.
+
+    Success criterion: traveled distance >= ||v_cmd_xy|| * episode_time * success_scale.
+    Only successful envs increase width up to width_max; others keep current width.
+    The center is broadcast (kept constant here for simplicity).
+    """
+    from .commands import _ensure_height_buffers  # internal util
+
+    _ensure_height_buffers(env, center=center, width=width_min)
+    # Read current width per-env
+    width = env._height_width  # type: ignore[attr-defined]
+    # Compute success for given env_ids
+    asset: Articulation = env.scene[asset_cfg.name]
+    # distance traveled in XY from origin
+    dist = torch.norm(asset.data.root_pos_w[env_ids, :2] - env.scene.env_origins[env_ids, :2], dim=1)
+    # expected distance based on commanded velocity magnitude
+    # use height-scaled command magnitude for expected distance
+    from .commands import height_scaled_velocity_commands
+    cmd_scaled = height_scaled_velocity_commands(env, vel_cmd_name=command_name)
+    vxy = torch.norm(cmd_scaled[env_ids, :2], dim=1)
+    expected = vxy * env.max_episode_length_s * float(success_scale)
+    success = dist >= expected
+    # Update widths for successful envs
+    new_width = width.clone()
+    if len(env_ids) > 0:
+        new_width[env_ids] = torch.where(success, torch.clamp(width[env_ids] + widen_step, min=width_min, max=width_max), width[env_ids])
+    env._height_width = new_width  # type: ignore[attr-defined]
+    # Broadcast center (kept constant); this simplifies observation consistency
+    env._height_center.fill_(float(center))  # type: ignore[attr-defined]
+    # Return current mean width for logging
+    return torch.mean(env._height_width)  # type: ignore[attr-defined]

@@ -23,7 +23,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+from . import mdp
 
 ##
 # 事前定義済みの設定
@@ -127,7 +127,17 @@ class ObservationsCfg:
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
-        velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
+        # 高さ依存で減衰させた速度コマンドを観測として渡す
+        velocity_commands = ObsTerm(
+            func=mdp.height_scaled_velocity_commands,
+            params={
+                "vel_cmd_name": "base_velocity",
+                "z_min": 0.70,
+                "z_ref": 0.74,
+                "p_lin": 1.2,
+                "p_ang": 1.0,
+            },
+        )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
@@ -136,6 +146,13 @@ class ObservationsCfg:
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
+        )
+
+        # 高さコマンドを観測に追加（[N,1]）
+        height_command = ObsTerm(
+            func=mdp.height_command,
+            noise=Unoise(n_min=-0.02, n_max=0.02),
+            clip=(0.0, 2.0),
         )
 
         def __post_init__(self):
@@ -226,6 +243,22 @@ class EventCfg:
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
+    # 高さコマンドの初期化とリサンプリング（中央値は固定、幅はカリキュラムで拡大）
+    height_cmd_init = EventTerm(
+        func=mdp.init_height_center_width,
+        mode="startup",
+        params={"center": 0.74, "width": 0.0},
+    )
+    height_cmd_reset = EventTerm(
+        func=mdp.resample_height_command,
+        mode="reset",
+    )
+    height_cmd_interval = EventTerm(
+        func=mdp.resample_height_command,
+        mode="interval",
+        interval_range_s=(10.0, 10.0),
+    )
+
 
 @configclass
 class RewardsCfg:
@@ -233,10 +266,32 @@ class RewardsCfg:
 
     # -- タスク本体
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_yaw_frame_exp_height_scaled,
+        weight=1.0,
+        params={
+            "vel_cmd": "base_velocity",
+            "std": math.sqrt(0.25),
+            "height_z_min": 0.70,
+            "height_z_ref": 0.74,
+            "p_lin": 1.2,
+        },
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_world_exp_height_scaled,
+        weight=0.5,
+        params={
+            "vel_cmd": "base_velocity",
+            "std": math.sqrt(0.25),
+            "height_z_min": 0.70,
+            "height_z_ref": 0.74,
+            "p_ang": 1.0,
+        },
+    )
+    # 高さ追従（指数）
+    track_base_height_exp = RewTerm(
+        func=mdp.track_base_height_exp,
+        weight=0.4,
+        params={"command_name": "base_height", "std": 0.04},
     )
     # -- ペナルティ
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
@@ -279,6 +334,18 @@ class CurriculumCfg:
     """MDP のカリキュラム項目。"""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    # 高さサンプリング幅を徐々に拡大（中央値は一定）
+    height_sampling = CurrTerm(
+        func=mdp.expand_height_sampling,
+        params={
+            "command_name": "base_velocity",
+            "center": 0.74,
+            "width_min": 0.0,
+            "width_max": 0.08,
+            "widen_step": 0.01,
+            "success_scale": 0.5,
+        },
+    )
 
 
 ##

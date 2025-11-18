@@ -7,8 +7,9 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
-import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
+# Use local MDP helpers and env cfg from this extension, not upstream tasks.
+from ... import mdp
+from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
 
 ##
 # 事前定義済みの設定

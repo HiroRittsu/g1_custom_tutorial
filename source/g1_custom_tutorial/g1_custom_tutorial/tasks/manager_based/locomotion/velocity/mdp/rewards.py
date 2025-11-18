@@ -24,6 +24,28 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def _log_reward_term(env: "ManagerBasedRLEnv", key: str, value: torch.Tensor) -> None:
+    """Utility to append per-step reward diagnostics to env.extras['log'].
+
+    - Creates the extras/log dicts if missing.
+    - Accepts tensors shaped [num_envs] and stores them directly so the
+      downstream runner (RSL-RL / RL-Games) can aggregate means.
+    """
+    # ensure extras/log structure exists
+    if not hasattr(env, "extras") or env.extras is None:
+        try:
+            env.extras = {}
+        except Exception:
+            # if env doesn't allow attribute set, just return silently
+            return
+    log = env.extras.get("log")
+    if log is None or not isinstance(log, dict):
+        log = {}
+        env.extras["log"] = log
+    # store tensor on CPU-friendly dtype as-is; the runner will average it
+    log[key] = value
+
+
 def feet_air_time(
     env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, threshold: float
 ) -> torch.Tensor:
@@ -119,3 +141,77 @@ def stand_still_joint_deviation_l1(
     command = env.command_manager.get_command(command_name)
     # Penalize motion when command is nearly zero.
     return mdp.joint_deviation_l1(env, asset_cfg) * (torch.norm(command[:, :2], dim=1) < command_threshold)
+
+
+# -----------------------------------------------------------------------------
+# Height tracking + height-aware speed tracking
+# -----------------------------------------------------------------------------
+
+def track_base_height_exp(
+    env: "ManagerBasedRLEnv",
+    command_name: str,
+    std: float,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exponentially shaped reward for tracking commanded base height.
+
+    r = exp(- (z - z_cmd)^2 / std^2)
+    """
+    asset = env.scene[asset_cfg.name]
+    base_z = asset.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    # Read commanded height from env buffer (set by mdp.commands helpers)
+    z_cmd = env._height_command[:, 0]
+    err2 = torch.square(base_z - z_cmd)
+    reward = torch.exp(-err2 / (std**2))
+    # log instantaneous per-env reward for diagnostics
+    _log_reward_term(env, "Rewards/track_base_height_exp", reward)
+    return reward
+
+
+def track_lin_vel_xy_yaw_frame_exp_height_scaled(
+    env: "ManagerBasedRLEnv",
+    vel_cmd: str,
+    std: float,
+    height_z_min: float,
+    height_z_ref: float,
+    p_lin: float = 1.2,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Track linear xy velocity in yaw-aligned frame w.r.t height-scaled commands.
+
+    The velocity command is first scaled as a function of the commanded height
+    to reduce infeasible targets at low stance.
+    """
+    from .commands import height_scaled_velocity_commands  # local import
+
+    asset = env.scene[asset_cfg.name]
+    vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
+    cmd_scaled = height_scaled_velocity_commands(
+        env, vel_cmd_name=vel_cmd, z_min=height_z_min, z_ref=height_z_ref, p_lin=p_lin, p_ang=1.0
+    )
+    err2 = torch.sum(torch.square(cmd_scaled[:, :2] - vel_yaw[:, :2]), dim=1)
+    reward = torch.exp(-err2 / (std**2))
+    _log_reward_term(env, "Rewards/track_lin_vel_xy_yaw_frame_exp_height_scaled", reward)
+    return reward
+
+
+def track_ang_vel_z_world_exp_height_scaled(
+    env: "ManagerBasedRLEnv",
+    vel_cmd: str,
+    std: float,
+    height_z_min: float,
+    height_z_ref: float,
+    p_ang: float = 1.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Track world yaw rate w.r.t height-scaled angular command."""
+    from .commands import height_scaled_velocity_commands  # local import
+
+    asset = env.scene[asset_cfg.name]
+    cmd_scaled = height_scaled_velocity_commands(
+        env, vel_cmd_name=vel_cmd, z_min=height_z_min, z_ref=height_z_ref, p_lin=1.0, p_ang=p_ang
+    )
+    err2 = torch.square(cmd_scaled[:, 2] - asset.data.root_ang_vel_w[:, 2])
+    reward = torch.exp(-err2 / (std**2))
+    _log_reward_term(env, "Rewards/track_ang_vel_z_world_exp_height_scaled", reward)
+    return reward
