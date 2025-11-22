@@ -17,7 +17,7 @@ from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 from ... import mdp
 from ...velocity_env_cfg import EventCfg as BaseEventCfg
 from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
-from ...custom_mdp import custom_curriculums, custom_rewards, custom_visuals
+from .custom_mdp import custom_curriculums, custom_rewards, custom_visuals
 
 
 @configclass
@@ -130,11 +130,6 @@ class G1Rewards(RewardsCfg):
         weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso_joint")},
     )
-
-
-@configclass
-class EventCfgPlay(BaseEventCfg):
-    """Play用のイベント構成（高さ矢印なし、学習と同じ設定）。"""
 
 
 @configclass
@@ -255,7 +250,7 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
 
 class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
     # Play ではスケールを調整した軽量シーンを使用（高さ/速度バリエーションは学習と同一）
-    events: EventCfgPlay = EventCfgPlay()
+    events: BaseEventCfg = BaseEventCfg()
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -268,3 +263,23 @@ class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
         # ランダム外乱（プッシュ）を無効化
         self.events.base_external_force_torque = None
         self.events.push_robot = None
+
+        # 高さコマンド: 0.7m固定から開始し、0.1〜0.7m に一様サンプリングを広げる
+        min_height, max_height = 0.1, 0.2
+        # 高さイベントを新規登録
+        self.events.height_cmd_init = EventTerm(
+            func=custom_rewards.init_height_center_width,
+            mode="startup",
+            params={"center": 0.7, "width": 0.0, "min_height": min_height, "max_height": max_height},
+        )
+        self.events.height_cmd_reset = EventTerm(
+            func=custom_rewards.resample_height_command,
+            mode="reset",
+            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+        )
+        self.events.height_cmd_interval = EventTerm(
+            func=custom_rewards.resample_height_command,
+            mode="interval",
+            interval_range_s=(10.0, 10.0),
+            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+        )
