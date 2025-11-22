@@ -17,7 +17,7 @@ from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 from ... import mdp
 from ...velocity_env_cfg import EventCfg as BaseEventCfg
 from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
-from ...custom_mdp import custom_curriculums, custom_rewards
+from ...custom_mdp import custom_curriculums, custom_rewards, custom_visuals
 
 
 @configclass
@@ -190,6 +190,11 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
             mode="interval",
             interval_range_s=(10.0, 10.0),
             params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+        )
+        # プレート可視化（骨盤Zと高さコマンドZを表示）
+        self.events.height_plate_spawn = EventTerm(func=custom_visuals.spawn_height_plate, mode="startup")
+        self.events.height_plate_update = EventTerm(
+            func=custom_visuals.update_height_plate, mode="interval", interval_range_s=(1.0 / 30.0, 1.0 / 30.0)
         )
         # 高さカリキュラムを追加
         self.curriculum.height_sampling = CurrTerm(
