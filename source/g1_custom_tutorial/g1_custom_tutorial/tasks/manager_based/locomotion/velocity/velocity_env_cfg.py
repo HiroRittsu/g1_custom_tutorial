@@ -262,43 +262,29 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """MDP の報酬項目。"""
+    """MDP の報酬項目（高さ非依存のベースライン）。"""
 
     # -- タスク本体
+    # 並進速度（yaw整列フレーム）の追従
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_yaw_frame_exp_height_scaled,
-        weight=1.0,
-        params={
-            "vel_cmd": "base_velocity",
-            "std": math.sqrt(0.25),
-            "height_z_min": 0.70,
-            "height_z_ref": 0.74,
-            "p_lin": 1.2,
-        },
+        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
+    # ヨー角速度の追従
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_world_exp_height_scaled,
-        weight=0.5,
-        params={
-            "vel_cmd": "base_velocity",
-            "std": math.sqrt(0.25),
-            "height_z_min": 0.70,
-            "height_z_ref": 0.74,
-            "p_ang": 1.0,
-        },
-    )
-    # 高さ追従（指数）
-    track_base_height_exp = RewTerm(
-        func=mdp.track_base_height_exp,
-        weight=0.4,
-        params={"command_name": "base_height", "std": 0.04},
+        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     # -- ペナルティ
+    # 垂直速度の抑制
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
+    # ロール・ピッチ方向の角速度抑制
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+    # トルク使用量の抑制
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
+    # 関節加速度の抑制
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    # アクション変化の抑制
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    # 足の空中時間を促す（コマンド依存）
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
         weight=0.125,
@@ -308,13 +294,16 @@ class RewardsCfg:
             "threshold": 0.5,
         },
     )
+    # 不要接触の抑制
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH"), "threshold": 1.0},
     )
     # -- オプションのペナルティ
+    # ロール・ピッチ姿勢の平坦維持
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
+    # 関節可動域を超えないよう抑制
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
 
