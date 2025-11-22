@@ -5,7 +5,6 @@
 
 import math
 
-from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
@@ -15,6 +14,7 @@ from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 from ... import mdp
 from ...velocity_env_cfg import EventCfg as BaseEventCfg
 from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
+from . import height_mdp
 
 
 @configclass
@@ -25,33 +25,33 @@ class G1Rewards(RewardsCfg):
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
     # 高さスケール済みの並進速度追従
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_yaw_frame_exp_height_scaled,
+        func=height_mdp.track_lin_vel_xy_yaw_frame_exp_height_scaled,
         weight=1.0,
         params={
             "vel_cmd": "base_velocity",
             "std": math.sqrt(0.25),
-            "height_z_min": 0.70,
-            "height_z_ref": 0.74,
+            "height_z_min": 0.10,
+            "height_z_ref": 0.70,
             "p_lin": 1.2,
         },
     )
     # 高さスケール済みの角速度追従
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_world_exp_height_scaled,
+        func=height_mdp.track_ang_vel_z_world_exp_height_scaled,
         weight=0.5,
         params={
             "vel_cmd": "base_velocity",
             "std": math.sqrt(0.25),
-            "height_z_min": 0.70,
-            "height_z_ref": 0.74,
+            "height_z_min": 0.10,
+            "height_z_ref": 0.70,
             "p_ang": 1.0,
         },
     )
     # 高さコマンドそのものへの追従
     track_base_height_exp = RewTerm(
-        func=mdp.track_base_height_exp,
+        func=height_mdp.track_pelvis_height_exp,
         weight=0.4,
-        params={"command_name": "base_height", "std": 0.04},
+        params={"command_name": "base_height", "std": 0.04, "pelvis_name": "pelvis"},
     )
     # 二足歩行向けの空中時間ボーナス
     feet_air_time = RewTerm(
@@ -131,13 +131,7 @@ class G1Rewards(RewardsCfg):
 
 @configclass
 class EventCfgPlay(BaseEventCfg):
-    """Play用のイベント構成。デバッグ矢印を追加し、更新を高速化。"""
-
-    # デバッグ矢印（高さ同期）
-    height_arrow_spawn = EventTerm(func=mdp.spawn_height_velocity_arrows, mode="startup")
-    height_arrow_update = EventTerm(
-        func=mdp.update_height_velocity_arrows, mode="interval", interval_range_s=(1.0 / 30.0, 1.0 / 30.0)
-    )
+    """Play用のイベント構成（高さ矢印なし、学習と同じ設定）。"""
 
 
 @configclass
@@ -175,6 +169,45 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
         self.curriculum.terrain_levels = None
+        # 高さコマンド: 0.7m固定から開始し、0.1〜0.7m に一様サンプリングを広げる
+        min_height, max_height = 0.1, 0.7
+        if getattr(self.events, "height_cmd_init", None) is not None:
+            self.events.height_cmd_init.func = height_mdp.init_height_center_width
+            self.events.height_cmd_init.params = {
+                "center": 0.7,
+                "width": 0.0,
+                "min_height": min_height,
+                "max_height": max_height,
+            }
+        if getattr(self.events, "height_cmd_reset", None) is not None:
+            self.events.height_cmd_reset.func = height_mdp.resample_height_command
+            self.events.height_cmd_reset.params = {
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.7,
+                "width_default": 0.0,
+            }
+        if getattr(self.events, "height_cmd_interval", None) is not None:
+            self.events.height_cmd_interval.func = height_mdp.resample_height_command
+            self.events.height_cmd_interval.params = {
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.7,
+                "width_default": 0.0,
+            }
+            self.events.height_cmd_interval.interval_range_s = (10.0, 10.0)
+        if getattr(self.curriculum, "height_sampling", None) is not None:
+            self.curriculum.height_sampling.func = height_mdp.expand_height_sampling
+            self.curriculum.height_sampling.params = {
+                "command_name": "base_velocity",
+                "center": 0.7,
+                "width_min": 0.0,
+                "width_max": 0.6,
+                "widen_step": 0.05,
+                "success_scale": 0.5,
+                "min_height": min_height,
+                "max_height": max_height,
+            }
 
         # 報酬調整
         self.rewards.track_ang_vel_z_exp.weight = 1.0
@@ -203,7 +236,7 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
 
 
 class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
-    # Play ではイベント構成を差し替え（矢印の生成・更新を追加）
+    # Play ではスケールを調整した軽量シーンを使用（高さ/速度バリエーションは学習と同一）
     events: EventCfgPlay = EventCfgPlay()
 
     def __post_init__(self) -> None:
@@ -217,23 +250,3 @@ class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
         # ランダム外乱（プッシュ）を無効化
         self.events.base_external_force_torque = None
         self.events.push_robot = None
-
-        # 可視的に「高さ方向」にも変化が出るよう、高さコマンドを有効化して定期リサンプル
-        # - 既定（学習用）は幅=0.0 で一定高さのため、デモでは幅を持たせて変化させる
-        if getattr(self.events, "height_cmd_init", None) is not None:
-            # 中央高さは据え置き、幅のみ付与
-            self.events.height_cmd_init.params["center"] = 0.50
-            # 変化を大きく（可視化重視）。例: ±50cm
-            self.events.height_cmd_init.params["width"] = 0.5
-        if getattr(self.events, "height_cmd_interval", None) is not None:
-            # 変化を見やすく 2 秒ごとに再サンプル
-            self.events.height_cmd_interval.interval_range_s = (2.0, 2.0)
-        # デモではカリキュラムで幅が勝手に変わらないように固定
-        if getattr(self.curriculum, "height_sampling", None) is not None:
-            self.curriculum.height_sampling = None
-
-        # 念のためここでもイベントを明示登録（上書き可能）
-        self.events.height_arrow_spawn = EventTerm(func=mdp.spawn_height_velocity_arrows, mode="startup")
-        self.events.height_arrow_update = EventTerm(
-            func=mdp.update_height_velocity_arrows, mode="interval", interval_range_s=(1.0 / 30.0, 1.0 / 30.0)
-        )
