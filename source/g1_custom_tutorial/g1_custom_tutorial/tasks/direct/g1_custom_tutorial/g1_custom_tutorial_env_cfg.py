@@ -1,7 +1,7 @@
-"""Direct workflow configuration for Unitree G1 velocity tracking on rough terrain.
+"""不整地上での Unitree G1 速度追従用の Direct ワークフロー設定。
 
-This cfg mirrors the upstream manager-based G1 locomotion velocity task (terrain, commands,
-observations, rewards, and terminations) so that the direct environment behaves identically.
+この設定は、上流の Manager ベース G1 ロコモーション速度タスク（地形・コマンド・観測・
+報酬・終了条件）を反映し、Direct 環境でも同等の挙動となるようにします。
 """
 
 from __future__ import annotations
@@ -19,29 +19,29 @@ from isaaclab_assets import G1_MINIMAL_CFG
 
 @configclass
 class G1CustomTutorialEnvCfg(DirectRLEnvCfg):
-    # env timing
+    # 環境ステップのタイミング
     decimation = 4
     episode_length_s = 20.0
 
-    # spaces (filled at runtime once the robot USD is parsed/sensors initialized)
+    # スペース（ロボット USD の解析とセンサ初期化後にランタイムで設定）
     action_space = 0
     observation_space = 0
     state_space = 0
 
-    # simulation
+    # 物理シミュレーション
     sim: SimulationCfg = SimulationCfg(dt=0.005, render_interval=decimation)
 
-    # robot(s)
+    # ロボット
     robot_cfg: ArticulationCfg = G1_MINIMAL_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
-    # scene
+    # シーン
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=2.5, replicate_physics=True)
 
-    # policy/action parameters
-    action_scale = 0.5  # radian offset applied on top of default pose
+    # ポリシー／アクション設定
+    action_scale = 0.5  # 既定姿勢に対するラジアンオフセット
     action_clip = 1.0
 
-    # command sampling (x, y, yaw in body-yaw frame)
+    # コマンドのサンプリング（ボディのヨー整列フレームで x, y, yaw）
     command_time_range = (10.0, 10.0)
     command_ranges = {
         "lin_vel_x": (0.0, 1.0),
@@ -50,14 +50,14 @@ class G1CustomTutorialEnvCfg(DirectRLEnvCfg):
     }
     command_smoothing = 0.0
 
-    # observation scaling
+    # 観測スケーリング
     obs_scales = {
         "lin_vel": 2.0,
         "ang_vel": 0.25,
         "joint_vel": 0.05,
     }
 
-    # reward/penalty scales (weights chosen to match manager-based G1 rough preset)
+    # 報酬／ペナルティの重み（Manager ベース G1 不整地プリセットに合わせた値）
     reward_scales = {
         "track_lin_vel_xy": 1.0,
         "track_ang_vel_z": 2.0,
@@ -82,12 +82,12 @@ class G1CustomTutorialEnvCfg(DirectRLEnvCfg):
     base_contact_threshold = 1.0
     height_scan_offset = 0.5
 
-    # reset parameters (reflect G1 rough env: zero velocities, random planar pose)
+    # リセット設定（G1 不整地環境に準拠：速度ゼロ、平面内ランダム姿勢）
     reset_pos_range_xy = 0.5
     reset_yaw_range = math.pi
     init_base_height = 0.74  # refined at runtime from asset default
 
-    # body/joint name patterns used for rewards/terminations
+    # 報酬／終了条件で使用するボディ／関節名パターン
     ankle_body_pattern = ".*_ankle_roll_link"
     torso_body_name = "torso_link"
     ankles_joints_patterns = [".*_ankle_pitch_joint", ".*_ankle_roll_joint"]

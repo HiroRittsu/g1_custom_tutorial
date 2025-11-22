@@ -1,4 +1,4 @@
-"""Direct RL environment that rewrites the manager-based G1 locomotion task in direct style."""
+"""Manager ベースの G1 ロコモーションタスクを Direct 方式で書き直した RL 環境。"""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from .g1_custom_tutorial_env_cfg import G1CustomTutorialEnvCfg
 
 
 class G1CustomTutorialEnv(DirectRLEnv):
-    """Direct RL environment that spawns Unitree G1 and mirrors the manager-based G1 velocity task."""
+    """Unitree G1 を生成し、Manager ベースの G1 速度タスクを反映する Direct RL 環境。"""
 
     cfg: G1CustomTutorialEnvCfg
 
     def __init__(self, cfg: G1CustomTutorialEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        # joint meta-data
+        # 関節メタデータ
         self._dof_ids, _ = self.robot.find_joints(".*")
         self.num_dof = len(self._dof_ids)
         self.nominal_joint_pos = self.robot.data.default_joint_pos.clone()
@@ -35,12 +35,12 @@ class G1CustomTutorialEnv(DirectRLEnv):
         self.joint_lower_limits = self.robot.data.soft_joint_pos_limits[0, self._dof_ids, 0]
         self.joint_upper_limits = self.robot.data.soft_joint_pos_limits[0, self._dof_ids, 1]
 
-        # body/joint index groups (asset and sensor spaces)
-        # asset (Articulation) ids
+        # ボディ／関節のインデックス群（アセット空間／センサ空間）
+        # アセット（Articulation）側の ID 群
         self.asset_ankle_body_ids, _ = self.robot.find_bodies(self.cfg.ankle_body_pattern)
         asset_torso_ids, _ = self.robot.find_bodies(self.cfg.torso_body_name)
         self.asset_torso_body_id = asset_torso_ids[0] if len(asset_torso_ids) > 0 else 0
-        # sensor (ContactSensor) ids
+        # センサ（ContactSensor）側の ID 群
         self.sensor_ankle_body_ids, _ = self.contact_sensor.find_bodies(self.cfg.ankle_body_pattern)
         sensor_torso_ids, _ = self.contact_sensor.find_bodies(self.cfg.torso_body_name)
         self.sensor_torso_body_id = sensor_torso_ids[0] if len(sensor_torso_ids) > 0 else 0
@@ -49,7 +49,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
         self.arm_joint_ids, _ = self.robot.find_joints(self.cfg.arms_joints_patterns)
         self.finger_joint_ids, _ = self.robot.find_joints(self.cfg.finger_joints_patterns)
 
-        # buffers reused every step
+        # 各ステップで再利用するバッファ
         self.actions = torch.zeros(self.num_envs, self.num_dof, device=self.device)
         self.prev_actions = torch.zeros_like(self.actions)
         self.action_rate = torch.zeros_like(self.actions)
@@ -75,7 +75,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
         self.ang_vel_tracking_std = torch.tensor(self.cfg.ang_vel_tracking_std, device=self.device)
 
     def _setup_scene(self):
-        # terrain (rough generator) — assigns env origins and adds meshes at /World/ground
+        # 地形（不整地ジェネレータ）— env の原点を割り当て、/World/ground にメッシュを配置
         terrain_vis = sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
             project_uvw=True,
@@ -99,19 +99,19 @@ class G1CustomTutorialEnv(DirectRLEnv):
             debug_vis=False,
         )
         self.terrain = TerrainImporter(terrain_cfg)
-        # expose terrain to scene so env_origins come from the terrain
+        # シーンに地形を公開して、env_origins を地形から取得できるようにする
         self.scene._terrain = self.terrain  # type: ignore[attr-defined]
 
-        # robot
+        # ロボット
         self.robot = Articulation(self.cfg.robot_cfg)
         self.scene.articulations["robot"] = self.robot
 
-        # clone and replicate
+        # 複製・レプリケーション
         self.scene.clone_environments(copy_from_source=False)
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
 
-        # sensors (height scan and contacts)
+        # センサ（高さスキャン／接触）
         self.height_scanner = RayCaster(
             RayCasterCfg(
                 prim_path="/World/envs/env_.*/Robot/torso_link",
@@ -132,21 +132,21 @@ class G1CustomTutorialEnv(DirectRLEnv):
             )
         )
 
-        # update space dimensions after robot is built (sensor ray-count becomes available after play)
+        # ロボット構築後に各スペース次元を更新（センサのレイ本数は Play 後に取得可能）
         num_dof = self._infer_robot_dof_count()
         self.cfg.action_space = num_dof
 
-        # lighting
+        # 照明
         sky_light = sim_utils.DomeLightCfg(
             intensity=750.0,
             texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
         )
         sky_light.func("/World/skyLight", sky_light)
 
-        # note: robot default root state isn't available until sim plays; keep cfg.init_base_height
+        # 注意: ロボットの既定 Root 状態はシミュレーション開始まで取得不可。cfg.init_base_height を維持
 
     """
-    Core simulation hooks.
+    コアとなるシミュレーション用フック。
     """
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
@@ -156,7 +156,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
         self.actions = torch.clamp(actions, -self.cfg.action_clip, self.cfg.action_clip)
         self.action_rate = self.actions - self.prev_actions
 
-        # command scheduling
+        # コマンドのリサンプリングスケジューリング
         self.command_time_left -= self.step_dt
         env_ids = torch.nonzero(self.command_time_left <= 0.0, as_tuple=False).squeeze(-1)
         if env_ids.numel() > 0:
@@ -171,7 +171,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         self._update_task_tensors()
-        # height scan: pos_z - hit_z - offset
+        # 高さスキャン: pos_z - hit_z - オフセット
         hs = self.height_scanner.data
         height_scan = hs.pos_w[:, 2].unsqueeze(1) - hs.ray_hits_w[..., 2] - self.cfg.height_scan_offset
 
@@ -194,18 +194,18 @@ class G1CustomTutorialEnv(DirectRLEnv):
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
-        # tracking rewards
+        # 追従系の報酬
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel_yaw[:, :2]), dim=-1)
         rew_lin_vel = torch.exp(-lin_vel_error / (self.lin_vel_tracking_std**2))
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel_w[:, 2])
         rew_ang_vel = torch.exp(-ang_vel_error / (self.ang_vel_tracking_std**2))
 
-        # penalties
+        # ペナルティ項目
         rew_lin_vel_z = torch.abs(self.base_lin_vel_yaw[:, 2])
         rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel_w[:, :2]), dim=-1)
         rew_flat_orientation = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=-1)
         rew_action_rate = torch.sum(torch.square(self.action_rate), dim=-1)
-        # restrict torque/acc penalties to locomotion joints similar to manager-based config
+        # トルク／加速度のペナルティは歩行用関節群に限定（Manager ベース設定に準拠）
         self.knee_joint_ids, _ = self.robot.find_joints([".*_knee_joint"]) if not hasattr(self, "knee_joint_ids") else (self.knee_joint_ids, None)
         torque_ids = list({*self.hip_joint_ids, *self.knee_joint_ids, *self.ankle_joint_ids})
         acc_ids = list({*self.hip_joint_ids, *self.knee_joint_ids})
@@ -218,8 +218,8 @@ class G1CustomTutorialEnv(DirectRLEnv):
         else:
             rew_joint_acc = torch.sum(torch.square(self.dof_acc), dim=-1)
 
-        # joint groups for penalties
-        # pos limits (ankles only)
+        # ペナルティ用の関節グループ
+        # 関節可動域（足首のみ）
         ankles_mask = torch.zeros(self.num_dof, dtype=torch.bool, device=self.device)
         ankles_mask[self.ankle_joint_ids] = True
         joint_norm = torch.where(
@@ -229,7 +229,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
         )
         rew_joint_limits = torch.sum(torch.clamp(joint_norm, min=0.0), dim=-1)
 
-        # joint deviation L1 for groups
+        # 関節群ごとの L1 ずれ
         def group_deviation(ids: list[int]) -> torch.Tensor:
             if len(ids) == 0:
                 return torch.zeros(self.num_envs, device=self.device)
@@ -241,7 +241,7 @@ class G1CustomTutorialEnv(DirectRLEnv):
         rew_joint_dev_fingers = group_deviation(self.finger_joint_ids)
         rew_joint_dev_torso = group_deviation(self.robot.find_joints("torso_joint")[0])
 
-        # feet air-time positive biped
+        # 足の空中時間（2脚向けの正の報酬）
         cs = self.contact_sensor
         air_time = cs.data.current_air_time[:, self.sensor_ankle_body_ids]
         contact_time = cs.data.current_contact_time[:, self.sensor_ankle_body_ids]
@@ -255,16 +255,16 @@ class G1CustomTutorialEnv(DirectRLEnv):
         # no reward for zero command
         rew_feet_air_time *= torch.norm(self.commands[:, :2], dim=1) > 0.1
 
-        # feet slide (penalize when in contact)
+        # 足のスリップ（接地時のペナルティ）
         forces_hist = cs.data.net_forces_w_history
         if forces_hist is None:
-            # fallback to current contact forces with a fake time dimension
+            # 擬似的な時間次元を付け、現在の接触力を代用
             forces_hist = cs.data.net_forces_w.unsqueeze(1)
         contacts = (forces_hist[:, :, self.sensor_ankle_body_ids, :].norm(dim=-1).max(dim=1)[0] > self.cfg.base_contact_threshold)
         foot_lin_vel = self.robot.data.body_lin_vel_w[:, self.asset_ankle_body_ids, :2].norm(dim=-1)
         rew_feet_slide = torch.sum(foot_lin_vel * contacts, dim=1)
 
-        # termination penalty (illegal torso contact)
+        # 終了ペナルティ（胴体の不正接触）
         forces_hist = cs.data.net_forces_w_history
         if forces_hist is None:
             forces_hist = cs.data.net_forces_w.unsqueeze(1)
@@ -336,19 +336,19 @@ class G1CustomTutorialEnv(DirectRLEnv):
         root_state[:, 3:7] = math_utils.quat_mul(self.nominal_root_state[env_ids_tensor, 3:7], quat_noise)
         root_state[:, 7:13] = 0.0
 
-        # apply state
+        # 状態を反映
         self.robot.write_root_pose_to_sim(root_state[:, :7], env_ids_tensor)  # type: ignore[arg-type]
         self.robot.write_root_velocity_to_sim(root_state[:, 7:], env_ids_tensor)  # type: ignore[arg-type]
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids_tensor)  # type: ignore[arg-type]
 
-        # reset buffers
+        # バッファをリセット
         self.actions[env_ids_tensor] = 0.0
         self.prev_actions[env_ids_tensor] = 0.0
         self.action_rate[env_ids_tensor] = 0.0
         self.command_time_left[env_ids_tensor] = 0.0
         self._resample_commands(env_ids_tensor)
     """
-    Helpers.
+    ヘルパー。
     """
 
     def _update_task_tensors(self):

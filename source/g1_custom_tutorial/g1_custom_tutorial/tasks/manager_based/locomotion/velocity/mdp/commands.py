@@ -1,8 +1,8 @@
-"""Height/velocity coupling utilities for manager-based MDP.
+"""Manager ベースの MDP における 高さ⇔速度 の連携ユーティリティ。
 
-This module adds a lightweight height command buffer and helpers to
-sample height per-env and to produce height-scaled velocity commands
-without introducing a new CommandCfg type.
+このモジュールは、軽量な高さコマンド用バッファと、
+各環境ごとの高さサンプル、そして高さに応じてスケールした速度コマンドを
+生成するヘルパーを提供します（新たな CommandCfg 型を導入せずに実現）。
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ if TYPE_CHECKING:  # only for type hints
 
 
 def _ensure_height_buffers(env: "ManagerBasedRLEnv", center: float = 0.74, width: float = 0.0) -> None:
-    """Ensure per-env height buffers exist on the env.
+    """環境ごとの高さ用バッファが存在することを保証します。
 
-    Buffers:
+    バッファ:
       - env._height_command: [num_envs, 1]
       - env._height_center: [num_envs]
       - env._height_width:  [num_envs]
@@ -36,10 +36,10 @@ def _ensure_height_buffers(env: "ManagerBasedRLEnv", center: float = 0.74, width
 def init_height_center_width(
     env: "ManagerBasedRLEnv", env_ids, center: float = 0.74, width: float = 0.0
 ) -> None:
-    """Initialize height buffers with given center/width and sample first commands.
+    """高さバッファを与えられた center/width で初期化し、最初のコマンドをサンプルします。
 
-    The second argument is intentionally `env_ids` to comply with EventManager's
-    expected signature (env, env_ids, ...). The value is ignored at startup.
+    第2引数 `env_ids` は EventManager の想定シグネチャ（env, env_ids, ...）に合わせるために
+    意図的に受け取っています。起動時は値を使用しません。
     """
     _ensure_height_buffers(env, center=center, width=width)
     env._height_center.fill_(float(center))  # type: ignore[attr-defined]
@@ -50,7 +50,7 @@ def init_height_center_width(
 def set_height_center_width(
     env: "ManagerBasedRLEnv", center: float | None = None, width: float | None = None
 ) -> None:
-    """Update center/width (broadcast to all envs)."""
+    """center/width を更新（全環境にブロードキャスト）。"""
     _ensure_height_buffers(env)
     if center is not None:
         env._height_center.fill_(float(center))  # type: ignore[attr-defined]
@@ -59,9 +59,9 @@ def set_height_center_width(
 
 
 def resample_height_command(env: "ManagerBasedRLEnv", env_ids) -> None:
-    """Sample height per env using stored center/width and write to env._height_command.
+    """保持している center/width を用いて各環境の高さをサンプルし、env._height_command に書き込みます。
 
-    If `env_ids` is provided (Tensor or list), only those envs are resampled; otherwise all envs.
+    `env_ids`（Tensor または list）が渡された場合は、その環境のみ再サンプルします。省略時は全環境です。
     """
     _ensure_height_buffers(env)
     center = env._height_center  # type: ignore[attr-defined]
@@ -82,13 +82,13 @@ def resample_height_command(env: "ManagerBasedRLEnv", env_ids) -> None:
 
 
 def height_command(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """Return current height command as [num_envs, 1] tensor."""
+    """現在の高さコマンドを [num_envs, 1] テンソルとして返します。"""
     _ensure_height_buffers(env)
     return env._height_command  # type: ignore[attr-defined]
 
 
 def _smooth_scale_from_height(z_cmd: torch.Tensor, z_min: float, z_ref: float, power: float) -> torch.Tensor:
-    """Compute smooth scaling s in [0,1] from height command.
+    """高さコマンドから [0,1] の滑らかなスケーリング s を計算します。
 
     s = clamp(((z_cmd - z_min) / (z_ref - z_min)), 0, 1) ** power
     """
@@ -108,10 +108,10 @@ def height_scaled_velocity_commands(
     p_lin: float = 1.2,
     p_ang: float = 1.0,
 ) -> torch.Tensor:
-    """Return velocity command scaled as a function of the height command.
+    """高さコマンドの関数としてスケールした速度コマンドを返します。
 
-    - Scales linear x/y by s^p_lin and angular z by s^p_ang.
-    - Keeps any extra components (e.g., heading) unchanged.
+    - 並進 x/y は s^p_lin、角速度 z は s^p_ang でスケーリング。
+    - 追加成分（例: heading）はそのまま保持します。
     """
     _ensure_height_buffers(env)
     cmd = env.command_manager.get_command(vel_cmd_name)

@@ -153,7 +153,7 @@ def track_base_height_exp(
     std: float,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Exponentially shaped reward for tracking commanded base height.
+    """高さコマンドに追従するための指数型報酬。
 
     r = exp(- (z - z_cmd)^2 / std^2)
     """
@@ -163,8 +163,10 @@ def track_base_height_exp(
     z_cmd = env._height_command[:, 0]
     err2 = torch.square(base_z - z_cmd)
     reward = torch.exp(-err2 / (std**2))
-    # log instantaneous per-env reward for diagnostics
+    # log instantaneous per-env reward and related values for diagnostics
     _log_reward_term(env, "Rewards/track_base_height_exp", reward)
+    _log_reward_term(env, "Commands/base_height", z_cmd)
+    _log_reward_term(env, "State/base_height", base_z)
     return reward
 
 
@@ -177,10 +179,10 @@ def track_lin_vel_xy_yaw_frame_exp_height_scaled(
     p_lin: float = 1.2,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Track linear xy velocity in yaw-aligned frame w.r.t height-scaled commands.
+    """ヨー整列フレームでの xy 並進速度を、高さに応じてスケールしたコマンドに対して追従。
 
-    The velocity command is first scaled as a function of the commanded height
-    to reduce infeasible targets at low stance.
+    低い高さ姿勢での非現実的な目標を避けるため、速度コマンドは高さコマンドの関数として
+    事前にスケーリングされます。
     """
     from .commands import height_scaled_velocity_commands  # local import
 
@@ -204,7 +206,7 @@ def track_ang_vel_z_world_exp_height_scaled(
     p_ang: float = 1.0,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Track world yaw rate w.r.t height-scaled angular command."""
+    """高さに応じてスケールした角速度コマンドに対する、ワールド座標系ヨー角速度の追従度。"""
     from .commands import height_scaled_velocity_commands  # local import
 
     asset = env.scene[asset_cfg.name]

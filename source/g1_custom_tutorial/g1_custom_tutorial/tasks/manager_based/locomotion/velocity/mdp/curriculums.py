@@ -67,11 +67,11 @@ def expand_height_sampling(
     success_scale: float = 0.5,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Curriculum: widen height sampling width for successful envs.
+    """カリキュラム: 成功した環境について高さサンプリング幅を拡大。
 
-    Success criterion: traveled distance >= ||v_cmd_xy|| * episode_time * success_scale.
-    Only successful envs increase width up to width_max; others keep current width.
-    The center is broadcast (kept constant here for simplicity).
+    成功判定: 走行距離 >= ||v_cmd_xy|| * エピソード時間 * success_scale。
+    成功した環境のみ、幅を width_max まで段階的に増加させ、その他は現状維持とします。
+    center はブロードキャスト（簡便のため一定）。
     """
     from .commands import _ensure_height_buffers  # internal util
 

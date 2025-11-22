@@ -8,11 +8,12 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments.
+# Gym 環境を登録
 ##
 
 
 """
+# 学習・検証用の G1 直書き（Direct）環境を Gym に登録
 gym.register(
     id="Template-G1-Custom-Tutorial-Direct-v0",
     entry_point=f"{__name__}.g1_custom_tutorial_env:G1CustomTutorialEnv",

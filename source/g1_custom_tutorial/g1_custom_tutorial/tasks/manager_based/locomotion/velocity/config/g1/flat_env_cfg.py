@@ -3,10 +3,23 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import SceneEntityCfg, EventTermCfg as EventTerm
 from isaaclab.utils import configclass
 
 from .rough_env_cfg import G1RoughEnvCfg
+from ... import mdp
+from ...velocity_env_cfg import EventCfg as BaseEventCfg
+
+
+@configclass
+class EventCfgPlay(BaseEventCfg):
+    """Play用のイベント構成。デバッグ矢印を追加し、更新を高速化。"""
+
+    # デバッグ矢印（高さ同期）
+    height_arrow_spawn = EventTerm(func=mdp.spawn_height_velocity_arrows, mode="startup")
+    height_arrow_update = EventTerm(
+        func=mdp.update_height_velocity_arrows, mode="interval", interval_range_s=(1.0 / 30.0, 1.0 / 30.0)
+    )
 
 
 @configclass
@@ -42,6 +55,8 @@ class G1FlatEnvCfg(G1RoughEnvCfg):
 
 
 class G1FlatEnvCfg_PLAY(G1FlatEnvCfg):
+    # Play ではイベント構成を差し替え（矢印の生成・更新を追加）
+    events: EventCfgPlay = EventCfgPlay()
     def __post_init__(self) -> None:
         # 親クラスの後処理初期化
         super().__post_init__()
@@ -54,3 +69,23 @@ class G1FlatEnvCfg_PLAY(G1FlatEnvCfg):
         # ランダム外乱（プッシュ）を無効化
         self.events.base_external_force_torque = None
         self.events.push_robot = None
+
+        # 可視的に「高さ方向」にも変化が出るよう、高さコマンドを有効化して定期リサンプル
+        # - 既定（学習用）は幅=0.0 で一定高さのため、デモでは幅を持たせて変化させる
+        if getattr(self.events, "height_cmd_init", None) is not None:
+            # 中央高さは据え置き、幅のみ付与
+            self.events.height_cmd_init.params["center"] = 0.50
+            # 変化を大きく（可視化重視）。例: ±50cm
+            self.events.height_cmd_init.params["width"] = 0.5
+        if getattr(self.events, "height_cmd_interval", None) is not None:
+            # 変化を見やすく 2 秒ごとに再サンプル
+            self.events.height_cmd_interval.interval_range_s = (2.0, 2.0)
+        # デモではカリキュラムで幅が勝手に変わらないように固定
+        if getattr(self.curriculum, "height_sampling", None) is not None:
+            self.curriculum.height_sampling = None
+
+        # 念のためここでもイベントを明示登録（上書き可能）
+        self.events.height_arrow_spawn = EventTerm(func=mdp.spawn_height_velocity_arrows, mode="startup")
+        self.events.height_arrow_update = EventTerm(
+            func=mdp.update_height_velocity_arrows, mode="interval", interval_range_s=(1.0 / 30.0, 1.0 / 30.0)
+        )

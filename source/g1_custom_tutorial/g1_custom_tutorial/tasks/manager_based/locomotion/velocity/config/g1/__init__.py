@@ -8,10 +8,11 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments.
+# Gym 環境を登録
 ##
 
 """
+# フラット地形の G1 速度タスク（学習用）を Gym に登録
 gym.register(
     id="Isaac-Velocity-Rough-G1-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -24,6 +25,7 @@ gym.register(
 )
 
 
+# フラット地形の G1 速度タスク（再生用）を Gym に登録
 gym.register(
     id="Isaac-Velocity-Rough-G1-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",

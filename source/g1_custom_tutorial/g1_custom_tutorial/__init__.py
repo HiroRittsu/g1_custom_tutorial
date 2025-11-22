@@ -4,11 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Python module serving as a project/extension template.
+プロジェクト／拡張機能のテンプレートとなる Python モジュール。
 """
 
-# Register Gym environments.
+# Gym 環境を登録
 from .tasks import *
 
-# Register UI extensions.
+# UI 拡張を登録
 from .ui_extension_example import *
