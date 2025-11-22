@@ -114,30 +114,20 @@ class ActionsCfg:
 
 @configclass
 class ObservationsCfg:
-    """MDP における観測の仕様。"""
+    """Observation specifications for the MDP."""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """ポリシー用観測グループ。"""
+        """Observations for policy group."""
 
-        # 観測項目（順序維持）
+        # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
-        # 高さ依存で減衰させた速度コマンドを観測として渡す
-        velocity_commands = ObsTerm(
-            func=mdp.height_scaled_velocity_commands,
-            params={
-                "vel_cmd_name": "base_velocity",
-                "z_min": 0.70,
-                "z_ref": 0.74,
-                "p_lin": 1.2,
-                "p_ang": 1.0,
-            },
-        )
+        velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
@@ -146,13 +136,6 @@ class ObservationsCfg:
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
-        )
-
-        # 高さコマンドを観測に追加（[N,1]）
-        height_command = ObsTerm(
-            func=mdp.height_command,
-            noise=Unoise(n_min=-0.02, n_max=0.02),
-            clip=(0.0, 2.0),
         )
 
         def __post_init__(self):
@@ -165,7 +148,7 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """イベント設定。"""
+    """Configuration for events."""
 
     # 起動時
     physics_material = EventTerm(
@@ -243,22 +226,6 @@ class EventCfg:
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
-    # 高さコマンドの初期化とリサンプリング（中央値は固定、幅はカリキュラムで拡大）
-    height_cmd_init = EventTerm(
-        func=mdp.init_height_center_width,
-        mode="startup",
-        params={"center": 0.74, "width": 0.0},
-    )
-    height_cmd_reset = EventTerm(
-        func=mdp.resample_height_command,
-        mode="reset",
-    )
-    height_cmd_interval = EventTerm(
-        func=mdp.resample_height_command,
-        mode="interval",
-        interval_range_s=(10.0, 10.0),
-    )
-
 
 @configclass
 class RewardsCfg:
@@ -323,18 +290,6 @@ class CurriculumCfg:
     """MDP のカリキュラム項目。"""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
-    # 高さサンプリング幅を徐々に拡大（中央値は一定）
-    height_sampling = CurrTerm(
-        func=mdp.expand_height_sampling,
-        params={
-            "command_name": "base_velocity",
-            "center": 0.74,
-            "width_min": 0.0,
-            "width_max": 0.08,
-            "widen_step": 0.01,
-            "success_scale": 0.5,
-        },
-    )
 
 
 ##

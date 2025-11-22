@@ -5,6 +5,9 @@
 
 import math
 
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
+from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import ObservationTermCfg
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
@@ -14,7 +17,7 @@ from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 from ... import mdp
 from ...velocity_env_cfg import EventCfg as BaseEventCfg
 from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
-from . import height_mdp
+from ...custom_mdp import custom_curriculums, custom_rewards
 
 
 @configclass
@@ -25,7 +28,7 @@ class G1Rewards(RewardsCfg):
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
     # 高さスケール済みの並進速度追従
     track_lin_vel_xy_exp = RewTerm(
-        func=height_mdp.track_lin_vel_xy_yaw_frame_exp_height_scaled,
+        func=custom_rewards.track_lin_vel_xy_yaw_frame_exp_height_scaled,
         weight=1.0,
         params={
             "vel_cmd": "base_velocity",
@@ -37,7 +40,7 @@ class G1Rewards(RewardsCfg):
     )
     # 高さスケール済みの角速度追従
     track_ang_vel_z_exp = RewTerm(
-        func=height_mdp.track_ang_vel_z_world_exp_height_scaled,
+        func=custom_rewards.track_ang_vel_z_world_exp_height_scaled,
         weight=0.5,
         params={
             "vel_cmd": "base_velocity",
@@ -49,7 +52,7 @@ class G1Rewards(RewardsCfg):
     )
     # 高さコマンドそのものへの追従
     track_base_height_exp = RewTerm(
-        func=height_mdp.track_pelvis_height_exp,
+        func=custom_rewards.track_pelvis_height_exp,
         weight=0.4,
         params={"command_name": "base_height", "std": 0.04, "pelvis_name": "pelvis"},
     )
@@ -171,34 +174,27 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.curriculum.terrain_levels = None
         # 高さコマンド: 0.7m固定から開始し、0.1〜0.7m に一様サンプリングを広げる
         min_height, max_height = 0.1, 0.7
-        if getattr(self.events, "height_cmd_init", None) is not None:
-            self.events.height_cmd_init.func = height_mdp.init_height_center_width
-            self.events.height_cmd_init.params = {
-                "center": 0.7,
-                "width": 0.0,
-                "min_height": min_height,
-                "max_height": max_height,
-            }
-        if getattr(self.events, "height_cmd_reset", None) is not None:
-            self.events.height_cmd_reset.func = height_mdp.resample_height_command
-            self.events.height_cmd_reset.params = {
-                "min_height": min_height,
-                "max_height": max_height,
-                "center_default": 0.7,
-                "width_default": 0.0,
-            }
-        if getattr(self.events, "height_cmd_interval", None) is not None:
-            self.events.height_cmd_interval.func = height_mdp.resample_height_command
-            self.events.height_cmd_interval.params = {
-                "min_height": min_height,
-                "max_height": max_height,
-                "center_default": 0.7,
-                "width_default": 0.0,
-            }
-            self.events.height_cmd_interval.interval_range_s = (10.0, 10.0)
-        if getattr(self.curriculum, "height_sampling", None) is not None:
-            self.curriculum.height_sampling.func = height_mdp.expand_height_sampling
-            self.curriculum.height_sampling.params = {
+        # 高さイベントを新規登録
+        self.events.height_cmd_init = EventTerm(
+            func=custom_rewards.init_height_center_width,
+            mode="startup",
+            params={"center": 0.7, "width": 0.0, "min_height": min_height, "max_height": max_height},
+        )
+        self.events.height_cmd_reset = EventTerm(
+            func=custom_rewards.resample_height_command,
+            mode="reset",
+            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+        )
+        self.events.height_cmd_interval = EventTerm(
+            func=custom_rewards.resample_height_command,
+            mode="interval",
+            interval_range_s=(10.0, 10.0),
+            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+        )
+        # 高さカリキュラムを追加
+        self.curriculum.height_sampling = CurrTerm(
+            func=custom_curriculums.expand_height_sampling,
+            params={
                 "command_name": "base_velocity",
                 "center": 0.7,
                 "width_min": 0.0,
@@ -207,7 +203,24 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
                 "success_scale": 0.5,
                 "min_height": min_height,
                 "max_height": max_height,
-            }
+            },
+        )
+        # 観測に高さ依存の速度コマンドと高さコマンドを追加
+        self.observations.policy.velocity_commands = ObservationTermCfg(  # type: ignore[attr-defined]
+            func=custom_rewards.height_scaled_velocity_commands,
+            params={
+                "vel_cmd_name": "base_velocity",
+                "z_min": 0.10,
+                "z_ref": 0.70,
+                "p_lin": 1.2,
+                "p_ang": 1.0,
+            },
+        )
+        self.observations.policy.height_command = ObservationTermCfg(  # type: ignore[attr-defined]
+            func=custom_rewards.height_command,
+            noise=None,
+            clip=(0.0, 2.0),
+        )
 
         # 報酬調整
         self.rewards.track_ang_vel_z_exp.weight = 1.0
