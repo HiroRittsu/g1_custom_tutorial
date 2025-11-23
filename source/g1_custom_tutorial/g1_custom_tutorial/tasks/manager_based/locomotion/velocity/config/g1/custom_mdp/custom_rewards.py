@@ -1,9 +1,4 @@
-"""G1 向けの高さ関連ユーティリティを集約。
-
-- 高さコマンドのバッファ管理（サンプリングは一様）
-- Pelvis 高さの追従報酬
-- 高さに応じた速度コマンドのスケーリング
-"""
+"""G1 向け高さ・スクワット関連のユーティリティ。"""
 
 from __future__ import annotations
 
@@ -12,7 +7,11 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_apply_inverse, yaw_quat
 
 
-def ensure_height_buffers(env, center: float = 0.7, width: float = 0.0) -> None:
+# -----------------------------------------------------------------------------#
+# 高さバッファとコマンド
+# -----------------------------------------------------------------------------#
+
+def ensure_height_buffers(env, center: float = 0.74, width: float = 0.0) -> None:
     """高さコマンド用バッファを確保。"""
     device = getattr(env, "device", "cpu")
     num_envs = getattr(env, "num_envs", 1)
@@ -25,7 +24,7 @@ def ensure_height_buffers(env, center: float = 0.7, width: float = 0.0) -> None:
 
 
 def init_height_center_width(
-    env, env_ids, center: float = 0.7, width: float = 0.0, min_height: float = 0.1, max_height: float = 0.7
+    env, env_ids, center: float = 0.74, width: float = 0.0, min_height: float = 0.24, max_height: float = 0.74
 ) -> None:
     """初期の高さコマンドを設定してサンプル。"""
     ensure_height_buffers(env, center=center, width=width)
@@ -37,27 +36,39 @@ def init_height_center_width(
 def resample_height_command(
     env,
     env_ids,
-    min_height: float = 0.1,
-    max_height: float = 0.7,
-    center_default: float = 0.7,
+    min_height: float = 0.24,
+    max_height: float = 0.74,
+    center_default: float = 0.74,
     width_default: float = 0.0,
+    squat_ratio: float = 1.0 / 3.0,
 ) -> None:
-    """center±width から一様サンプルし、高さコマンドを更新。"""
+    """スクワット/歩行の混合サンプリングで高さコマンドを更新。"""
     ensure_height_buffers(env, center=center_default, width=width_default)
-    center = env._height_center  # type: ignore[attr-defined]
-    width = env._height_width  # type: ignore[attr-defined]
-    low = torch.clamp(center - width, min=min_height, max=max_height)
-    high = torch.clamp(center + width, min=min_height, max=max_height)
-    low, high = torch.minimum(low, high), torch.maximum(low, high)
     if env_ids is None or env_ids == slice(None):
-        rand = torch.rand_like(center)
-        samples = low + (high - low) * rand
-        env._height_command[:, 0] = samples  # type: ignore[attr-defined]
+        env_ids_tensor = torch.arange(env.num_envs, device=env.device)
     else:
-        env_ids_tensor = torch.as_tensor(env_ids, device=center.device)
-        rand = torch.rand_like(center[env_ids_tensor])
-        samples = low[env_ids_tensor] + (high[env_ids_tensor] - low[env_ids_tensor]) * rand
-        env._height_command[env_ids_tensor, 0] = samples  # type: ignore[attr-defined]
+        env_ids_tensor = torch.as_tensor(env_ids, device=env.device)
+    n = env_ids_tensor.numel()
+    if n == 0:
+        return
+
+    perm = torch.randperm(n, device=env.device)
+    squat_count = int(n * float(squat_ratio))
+    squat_ids = env_ids_tensor[perm[:squat_count]]
+    walk_ids = env_ids_tensor[perm[squat_count:]]
+
+    if squat_ids.numel() > 0:
+        squat_height = torch.empty_like(squat_ids, dtype=torch.float32, device=env.device).uniform_(
+            float(min_height), float(center_default)
+        )
+        env._height_command[squat_ids, 0] = torch.clamp(squat_height, min=min_height, max=max_height)  # type: ignore[attr-defined]
+    if walk_ids.numel() > 0:
+        walk_height = center_default + 0.02 * torch.randn_like(walk_ids, dtype=torch.float32, device=env.device)
+        walk_height = torch.clamp(walk_height, min=min_height, max=max_height)
+        env._height_command[walk_ids, 0] = walk_height  # type: ignore[attr-defined]
+
+    env._height_center.fill_(float(center_default))  # type: ignore[attr-defined]
+    env._height_width.fill_(float(width_default))  # type: ignore[attr-defined]
 
 
 def height_command(env) -> torch.Tensor:
@@ -65,6 +76,10 @@ def height_command(env) -> torch.Tensor:
     ensure_height_buffers(env)
     return env._height_command  # type: ignore[attr-defined]
 
+
+# -----------------------------------------------------------------------------#
+# コマンドスケーリング
+# -----------------------------------------------------------------------------#
 
 def _smooth_scale_from_height(z_cmd: torch.Tensor, z_min: float, z_ref: float, power: float) -> torch.Tensor:
     denom = max(z_ref - z_min, 1e-6)
@@ -78,8 +93,8 @@ def _smooth_scale_from_height(z_cmd: torch.Tensor, z_min: float, z_ref: float, p
 def height_scaled_velocity_commands(
     env,
     vel_cmd_name: str = "base_velocity",
-    z_min: float = 0.1,
-    z_ref: float = 0.7,
+    z_min: float = 0.24,
+    z_ref: float = 0.74,
     p_lin: float = 1.2,
     p_ang: float = 1.0,
 ) -> torch.Tensor:
@@ -134,6 +149,19 @@ def track_ang_vel_z_world_exp_height_scaled(
     return torch.exp(-err2 / (std**2))
 
 
+# -----------------------------------------------------------------------------#
+# 高さ追従・スクワット報酬
+# -----------------------------------------------------------------------------#
+
+def get_link_height(env, env_ids, asset_cfg: SceneEntityCfg, link_name: str) -> torch.Tensor:
+    """指定リンクのワールド Z を返す。"""
+    sim = env.scene[asset_cfg.name]
+    body_idx = sim.body_names.index(link_name)
+    ids = env_ids if env_ids is not None else slice(None)
+    body_state = sim.data.body_state_w[ids, body_idx]
+    return body_state[..., 2]
+
+
 def track_pelvis_height_exp(
     env,
     command_name: str,
@@ -151,3 +179,46 @@ def track_pelvis_height_exp(
     z_cmd = env._height_command[:, 0]
     err2 = torch.square(base_z - z_cmd)
     return torch.exp(-err2 / (std**2))
+
+
+def track_torso_height_exp(
+    env,
+    command_name: str,
+    std: float,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    link_name: str = "torso_link",
+):
+    """torso 高さの指数追従。"""
+    z_cmd = env._height_command[:, 0]  # type: ignore[attr-defined]
+    h = get_link_height(env, None, asset_cfg, link_name=link_name)
+    diff = h - z_cmd
+    return torch.exp(-0.5 * (diff / std) ** 2)
+
+
+def squat_knee_reward(
+    env,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    knee_joint_names,
+    h_std: float = 0.02,
+    link_name: str = "torso_link",
+):
+    """HOMIE にならった膝報酬（簡略版）。"""
+    z_cmd = env._height_command[:, 0]  # type: ignore[attr-defined]
+    h = get_link_height(env, None, asset_cfg, link_name=link_name)
+    h_err = h - z_cmd
+
+    robot = env.scene[asset_cfg.name]
+    knee_indices = [robot.joint_names.index(n) for n in knee_joint_names]
+    q = robot.data.joint_pos[:, knee_indices]
+    # そのステップの膝角度レンジで正規化（簡略化）
+    jmin = q.min(dim=0, keepdim=True).values
+    jmax = q.max(dim=0, keepdim=True).values
+    q_norm = (q - jmin) / (jmax - jmin + 1e-6)
+
+    too_high = (h_err > h_std).float().unsqueeze(-1)
+    too_low = (h_err < -h_std).float().unsqueeze(-1)
+    r_flex = q_norm
+    r_extend = 1.0 - q_norm
+    r = (too_high * r_flex + too_low * r_extend).mean(dim=-1)
+    return r

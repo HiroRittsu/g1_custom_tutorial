@@ -14,13 +14,13 @@ def expand_height_sampling(
     env,
     env_ids: Sequence[int],
     command_name: str = "base_velocity",
-    center: float = 0.7,
+    center: float = 0.74,
     width_min: float = 0.0,
-    width_max: float = 0.6,
+    width_max: float = 0.5,
     widen_step: float = 0.05,
     success_scale: float = 0.5,
-    min_height: float = 0.1,
-    max_height: float = 0.7,
+    min_height: float = 0.24,
+    max_height: float = 0.74,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
     """成功環境だけ高さ幅を段階的に広げる。"""

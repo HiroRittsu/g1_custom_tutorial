@@ -29,32 +29,49 @@ class G1Rewards(RewardsCfg):
     # 高さスケール済みの並進速度追従
     track_lin_vel_xy_exp = RewTerm(
         func=custom_rewards.track_lin_vel_xy_yaw_frame_exp_height_scaled,
-        weight=1.0,
+        weight=2.0,
         params={
             "vel_cmd": "base_velocity",
             "std": math.sqrt(0.25),
-            "height_z_min": 0.10,
-            "height_z_ref": 0.70,
+            "height_z_min": 0.24,
+            "height_z_ref": 0.74,
             "p_lin": 1.2,
         },
     )
     # 高さスケール済みの角速度追従
     track_ang_vel_z_exp = RewTerm(
         func=custom_rewards.track_ang_vel_z_world_exp_height_scaled,
-        weight=0.5,
+        weight=1.0,
         params={
             "vel_cmd": "base_velocity",
             "std": math.sqrt(0.25),
-            "height_z_min": 0.10,
-            "height_z_ref": 0.70,
+            "height_z_min": 0.24,
+            "height_z_ref": 0.74,
             "p_ang": 1.0,
         },
     )
     # 高さコマンドそのものへの追従
     track_base_height_exp = RewTerm(
-        func=custom_rewards.track_pelvis_height_exp,
-        weight=0.4,
-        params={"command_name": "base_height", "std": 0.04, "pelvis_name": "pelvis"},
+        func=custom_rewards.track_torso_height_exp,
+        weight=2.0,
+        params={
+            "command_name": "base_height",
+            "std": 0.04,
+            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "link_name": "torso_link",
+        },
+    )
+    # スクワット膝報酬
+    squat_knee = RewTerm(
+        func=custom_rewards.squat_knee_reward,
+        weight=0.75,
+        params={
+            "command_name": "base_height",
+            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "knee_joint_names": ["left_knee_joint", "right_knee_joint"],
+            "h_std": 0.02,
+            "link_name": "torso_link",
+        },
     )
     # 二足歩行向けの空中時間ボーナス
     feet_air_time = RewTerm(
@@ -167,24 +184,36 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
         self.curriculum.terrain_levels = None
-        # 高さコマンド: 0.7m固定から開始し、0.1〜0.7m に一様サンプリングを広げる
-        min_height, max_height = 0.1, 0.7
+        # 高さコマンド: HOMIE の範囲に合わせる (torso_link 基準で 0.24-0.74)
+        min_height, max_height = 0.24, 0.74
         # 高さイベントを新規登録
         self.events.height_cmd_init = EventTerm(
             func=custom_rewards.init_height_center_width,
             mode="startup",
-            params={"center": 0.7, "width": 0.0, "min_height": min_height, "max_height": max_height},
+            params={"center": 0.74, "width": 0.0, "min_height": min_height, "max_height": max_height},
         )
         self.events.height_cmd_reset = EventTerm(
             func=custom_rewards.resample_height_command,
             mode="reset",
-            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+            params={
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.74,
+                "width_default": 0.0,
+                "squat_ratio": 1.0 / 3.0,
+            },
         )
         self.events.height_cmd_interval = EventTerm(
             func=custom_rewards.resample_height_command,
             mode="interval",
-            interval_range_s=(10.0, 10.0),
-            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+            interval_range_s=(4.0, 4.0),
+            params={
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.74,
+                "width_default": 0.0,
+                "squat_ratio": 1.0 / 3.0,
+            },
         )
         # プレート可視化（骨盤Zと高さコマンドZを表示）
         self.events.height_plate_spawn = EventTerm(func=custom_visuals.spawn_height_plate, mode="startup")
@@ -196,9 +225,9 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
             func=custom_curriculums.expand_height_sampling,
             params={
                 "command_name": "base_velocity",
-                "center": 0.7,
+                "center": 0.74,
                 "width_min": 0.0,
-                "width_max": 0.6,
+                "width_max": 0.5,
                 "widen_step": 0.05,
                 "success_scale": 0.5,
                 "min_height": min_height,
@@ -210,8 +239,8 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
             func=custom_rewards.height_scaled_velocity_commands,
             params={
                 "vel_cmd_name": "base_velocity",
-                "z_min": 0.10,
-                "z_ref": 0.70,
+                "z_min": 0.24,
+                "z_ref": 0.74,
                 "p_lin": 1.2,
                 "p_ang": 1.0,
             },
@@ -232,7 +261,7 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.dof_acc_l2.params["asset_cfg"] = SceneEntityCfg(
             "robot", joint_names=[".*_hip_.*", ".*_knee_joint"]
         )
-        self.rewards.feet_air_time.weight = 0.75
+        self.rewards.feet_air_time.weight = 0.25
         self.rewards.feet_air_time.params["threshold"] = 0.4
         self.rewards.dof_torques_l2.weight = -2.0e-6
         self.rewards.dof_torques_l2.params["asset_cfg"] = SceneEntityCfg(
@@ -256,7 +285,7 @@ class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
         super().__post_init__()
 
         # 再生（デモ）用に小規模シーンに調整
-        self.scene.num_envs = 50
+        self.scene.num_envs = 8
         self.scene.env_spacing = 2.5
         # デモではランダム化を無効化
         self.observations.policy.enable_corruption = False
@@ -264,22 +293,39 @@ class G1CustomFlatEnvCfg_PLAY(G1CustomFlatEnvCfg):
         self.events.base_external_force_torque = None
         self.events.push_robot = None
 
-        # 高さコマンド: 0.7m固定から開始し、0.1〜0.7m に一様サンプリングを広げる
-        min_height, max_height = 0.1, 0.2
+        # 速度コマンド範囲
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (0, 0)
+        self.commands.base_velocity.ranges.ang_vel_z = (0, 0)
+
+        # 高さコマンド: HOMIE の範囲に合わせる
+        min_height, max_height = 0.24, 0.74
         # 高さイベントを新規登録
         self.events.height_cmd_init = EventTerm(
             func=custom_rewards.init_height_center_width,
             mode="startup",
-            params={"center": 0.7, "width": 0.0, "min_height": min_height, "max_height": max_height},
+            params={"center": 0.74, "width": 0.0, "min_height": min_height, "max_height": max_height},
         )
         self.events.height_cmd_reset = EventTerm(
             func=custom_rewards.resample_height_command,
             mode="reset",
-            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+            params={
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.74,
+                "width_default": 0.0,
+                "squat_ratio": 1.0 / 3.0,
+            },
         )
         self.events.height_cmd_interval = EventTerm(
             func=custom_rewards.resample_height_command,
             mode="interval",
-            interval_range_s=(10.0, 10.0),
-            params={"min_height": min_height, "max_height": max_height, "center_default": 0.7, "width_default": 0.0},
+            interval_range_s=(4.0, 4.0),
+            params={
+                "min_height": min_height,
+                "max_height": max_height,
+                "center_default": 0.74,
+                "width_default": 0.0,
+                "squat_ratio": 1.0 / 3.0,
+            },
         )
