@@ -12,12 +12,11 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
-from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
-
 from ... import mdp
 from ...velocity_env_cfg import EventCfg as BaseEventCfg
 from ...velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg
 from .custom_mdp import custom_curriculums, custom_rewards, custom_visuals
+from g1_custom_tutorial.assets import G1_IMPORTED_29DOF_CFG  # isort: skip
 
 
 @configclass
@@ -159,7 +158,8 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         super().__post_init__()
 
         # シーン構成
-        self.scene.robot = G1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = G1_IMPORTED_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
         # ランダム化
         self.events.push_robot = None
         self.events.add_base_mass = None
@@ -255,6 +255,23 @@ class G1CustomFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.track_ang_vel_z_exp.weight = 1.0
         self.rewards.lin_vel_z_l2.weight = -0.2
         self.rewards.undesired_contacts = None
+        self.rewards.joint_deviation_arms.params["asset_cfg"] = SceneEntityCfg(
+            "robot",
+            joint_names=[
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ],
+        )
+        self.rewards.joint_deviation_fingers = None
+        self.rewards.joint_deviation_torso.params["asset_cfg"] = SceneEntityCfg(
+            "robot",
+            joint_names=["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"],
+        )
         self.rewards.flat_orientation_l2.weight = -1.0
         self.rewards.action_rate_l2.weight = -0.005
         self.rewards.dof_acc_l2.weight = -1.0e-7

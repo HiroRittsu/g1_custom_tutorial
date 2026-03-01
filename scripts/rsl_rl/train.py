@@ -73,6 +73,7 @@ import gymnasium as gym
 import os
 import torch
 from datetime import datetime
+from pathlib import Path
 
 from rsl_rl.runners import OnPolicyRunner
 
@@ -84,20 +85,34 @@ from isaaclab.envs import (
     multi_agent_to_single_agent,
 )
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.io import dump_pickle, dump_yaml
+from isaaclab.utils.io import dump_yaml
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlVecEnvWrapper,
+    export_policy_as_jit,
+    export_policy_as_onnx,
+)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
+from g1_custom_tutorial.deploy import export_policy_manifest, resolve_policy_joint_names_from_env
 import g1_custom_tutorial.tasks  # noqa: F401
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+def _find_latest_checkpoint(log_dir: str) -> str | None:
+    checkpoints = sorted(
+        Path(log_dir).glob("model_*.pt"),
+        key=lambda path: int(path.stem.split("_")[-1]),
+    )
+    return str(checkpoints[-1]) if checkpoints else None
 
 
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
@@ -176,11 +191,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
-
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+
+    try:
+        policy_nn = runner.alg.policy
+    except AttributeError:
+        policy_nn = runner.alg.actor_critic
+
+    export_model_dir = os.path.join(log_dir, "exported")
+    policy_path = os.path.join(export_model_dir, "policy.pt")
+    obs_normalizer = getattr(runner, "obs_normalizer", None)
+    export_policy_as_jit(policy_nn, obs_normalizer, path=export_model_dir, filename="policy.pt")
+    export_policy_as_onnx(policy_nn, normalizer=obs_normalizer, path=export_model_dir, filename="policy.onnx")
+    export_policy_manifest(
+        export_model_dir,
+        resolve_policy_joint_names_from_env(env),
+        checkpoint_path=_find_latest_checkpoint(log_dir),
+        policy_path=policy_path,
+        env_cfg=env_cfg,
+        agent_cfg=agent_cfg,
+    )
 
     # close the simulator
     env.close()

@@ -31,6 +31,7 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--export_only", action="store_true", default=False, help="Export the policy and exit.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -74,6 +75,7 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
+from g1_custom_tutorial.deploy import export_policy_manifest, resolve_policy_joint_names_from_env
 import g1_custom_tutorial.tasks  # noqa: F401
 
 
@@ -150,10 +152,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(
-        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
+    policy_path = os.path.join(export_model_dir, "policy.pt")
+    obs_normalizer = getattr(ppo_runner, "obs_normalizer", None)
+    export_policy_as_jit(policy_nn, obs_normalizer, path=export_model_dir, filename="policy.pt")
+    export_policy_as_onnx(policy_nn, normalizer=obs_normalizer, path=export_model_dir, filename="policy.onnx")
+    export_policy_manifest(
+        export_model_dir,
+        resolve_policy_joint_names_from_env(env),
+        checkpoint_path=resume_path,
+        policy_path=policy_path,
+        env_cfg=env_cfg,
+        agent_cfg=agent_cfg,
     )
+
+    if args_cli.export_only:
+        env.close()
+        return
 
     dt = env.unwrapped.step_dt
 
